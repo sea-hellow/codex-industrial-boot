@@ -1,0 +1,32 @@
+name: 权利反馈 / Rights concern
+description: 反馈代码、图片、视频、字体或品牌标识的权利与许可问题。
+title: "[权利反馈] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢指出具体问题。本页是公开 Issue，请勿上传身份证、住址、合同、密码、密钥或其他敏感材料。
+        你不必先联系维护者才能依法主张权利；也不必在此提交宣誓声明或公开敏感证明。
+        如需私密提交，可使用 GitHub 适用的平台渠道，或先请求私密联系方式。
+        处理说明见仓库根目录 RIGHTS.md；本模板不是授权证明或法律程序替代。
+  - type: textarea
+    id: affected-content
+    attributes:
+      label: 涉及内容 / Affected content
+      description: 请指出下载版本、文件名、截图位置或视频时间点。
+    validations:
+      required: false
+  - type: textarea
+    id: concern
+    attributes:
+      label: 具体问题与可公开来源 / Concern and public sources
+      description: 说明涉及的作品、标识或权利；可附公开链接及你与相关权利的关系，无需敏感证明。
+    validations:
+      required: false
+  - type: textarea
+    id: requested-action
+    attributes:
+      label: 希望采取的措施 / Requested action
+      description: 例如更正说明、替换素材、撤下附件，或请求私密联系方式。
+    validations:
+      required: false

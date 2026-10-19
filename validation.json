@@ -1,0 +1,21 @@
+{
+  "version": "1.0.1",
+  "platform_tested": "Windows x64",
+  "video": {
+    "width": 2560,
+    "height": 1600,
+    "fps": 30,
+    "duration_seconds": 32,
+    "frames": 960
+  },
+  "full_native_preview": "passed",
+  "original_desktop_entry_complete_playback_and_activation": "passed",
+  "entry_management": "install, empty TargetPath app links, repeat install, exact restore, preserve user changes, reinstall after restore, verify: passed",
+  "lifecycle": "skip, reduced motion, missing/corrupt video preview, invalid config check, missing video activates app: passed",
+  "offline_payload_without_credentials_or_machine_paths": true,
+  "playback_and_activation_evidence_package_version": "1.0.0",
+  "notice_revision_checks": "v1.0.1 source build, shortcut install/restore, lifecycle fallbacks, local documentation links and rights-report template parsing: passed",
+  "notice_revision": "1.0.1 adds notices, rights-report documents, installer text and a nonofficial window title; the video and playback behavior remain unchanged.",
+  "legal_clearance_completed": false,
+  "limit": "Playback and desktop activation evidence was collected with v1.0.0 while Codex was already open; cold-start timing and other computers were not verified. This technical record is not legal clearance."
+}

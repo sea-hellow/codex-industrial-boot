@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<launcher>
+  <videoFile>media/startup.mp4</videoFile>
+  <appUserModelId>OpenAI.Codex_2p2nqsd0c76g0!App</appUserModelId>
+  <executablePath></executablePath>
+  <executableArguments></executableArguments>
+  <respectReducedMotion>true</respectReducedMotion>
+</launcher>

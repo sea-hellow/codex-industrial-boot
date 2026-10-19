@@ -1,0 +1,11 @@
+* text=auto
+*.md text eol=lf
+*.cs text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.xml text eol=lf
+*.ico binary
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.exe binary

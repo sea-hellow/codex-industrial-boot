@@ -1,0 +1,24 @@
+# Built executables and release media are distributed through GitHub Releases.
+*.exe
+*.mp4
+*.zip
+*.pdb
+/SHA256SUMS.txt
+
+# Per-computer installation data must stay local.
+/.integration/
+/logs/
+/.codex-industrial-owner
+*.lnk
+*.tmp
+
+# Editor, cache and local environment files.
+.vs/
+.vscode/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+Thumbs.db
+Desktop.ini
