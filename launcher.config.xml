@@ -5,4 +5,8 @@
   <executablePath></executablePath>
   <executableArguments></executableArguments>
   <respectReducedMotion>true</respectReducedMotion>
+  <!-- cover：铺满并略裁切；contain：完整画面，比例不符时留黑边 -->
+  <videoFit>cover</videoFit>
+  <!-- 结束前多少秒在后台启动 Codex。0 表示播完再启动。 -->
+  <prefetchSeconds>4</prefetchSeconds>
 </launcher>
