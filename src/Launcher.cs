@@ -140,6 +140,7 @@ namespace CodexIndustrial
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern int GetApplicationUserModelId(IntPtr process, ref uint length, StringBuilder id);
+        [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateSolidBrush(uint color);
         [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr obj);
         [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
@@ -174,7 +175,7 @@ namespace CodexIndustrial
         private readonly Stopwatch topClock = new Stopwatch();
         private System.Drawing.Rectangle monitorBounds;
         private bool boundsReady, started, finishing, cleaned, opened, revealed, fadeStarted, fadeDone, closing;
-        private bool activationStarted, holdForWindow, watchingEnd, lastVisible, skipQueued;
+        private bool activationStarted, activationReused, holdForWindow, watchingEnd, lastVisible, skipQueued, toppedOverTarget, warmedTarget;
         private double duration = 32, position, progressAt;
         private int renderCount;
         private uint appPid;
@@ -310,7 +311,8 @@ namespace CodexIndustrial
             if (reduced)
             {
                 status.Text = "Codex · 正在启动";
-                if (!preview) EnsureActivated();
+                if (!preview && EnsureActivated() && activationReused)
+                    Dispatcher.BeginInvoke(new Action(delegate { Finish("reduced_motion"); }));
                 return;
             }
             try
@@ -386,13 +388,19 @@ namespace CodexIndustrial
             if (cleaned) return;
             if (finishing)
             {
-                if (activationStarted) KeepOnTop();
                 if (holdForWindow && !fadeStarted)
                 {
-                    bool visible = RefreshWindow();
-                    if (visible) session.Data["app_window_visible"] = true;
-                    if (!visible && dismiss.Elapsed.TotalSeconds > 2.5 && status.Text.Length == 0) status.Text = "正在进入 Codex…";
-                    if (visible || dismiss.Elapsed.TotalSeconds >= 8)
+                    bool visible = RefreshWindow(80);
+                    if (visible)
+                    {
+                        session.Data["app_window_visible"] = true;
+                        session.Data["handoff_immediate"] = true;
+                        fadeDone = true;
+                        TryComplete();
+                        return;
+                    }
+                    if (dismiss.Elapsed.TotalSeconds > 2.5 && status.Text.Length == 0) status.Text = "正在进入 Codex…";
+                    if (dismiss.Elapsed.TotalSeconds >= 8)
                     {
                         if (reduced) { fadeDone = true; TryComplete(); }
                         else BeginFade();
@@ -402,7 +410,23 @@ namespace CodexIndustrial
                 if (fadeDone) TryComplete();
                 return;
             }
-            if (activationStarted) KeepOnTop();
+            // Pin above a process we just launched, and only until its window appears or about a second has passed. An already-open Codex is not relaunched and is not fought.
+            if (activationStarted && !activationReused && !toppedOverTarget)
+            {
+                if (handoff.IsRunning && handoff.Elapsed.TotalSeconds >= 1.2 && !lastVisible) toppedOverTarget = true;
+                else
+                {
+                    bool wasVisible = lastVisible;
+                    RefreshWindow(400);
+                    if (!lastVisible) KeepOnTop();
+                    else if (!wasVisible)
+                    {
+                        toppedOverTarget = true;
+                        topClock.Reset();
+                        KeepOnTop();
+                    }
+                }
+            }
             double elapsed = clock.Elapsed.TotalSeconds;
             if (skipAfter >= 0 && elapsed >= skipAfter) { Finish("diagnostic_skip"); return; }
             if (reduced) { if (elapsed >= 0.6) Finish("reduced_motion"); return; }
@@ -421,8 +445,13 @@ namespace CodexIndustrial
                 if (!activationStarted) session.Data["activation_prefetch"] = true;
                 if (!EnsureActivated()) { Finish("activation_failed"); return; }
             }
-            // Pause just before MediaEnded, which clears the picture, so the last real frame can stay up.
-            if (position >= duration - 0.08) { session.Data["completed"] = true; Finish("completed"); return; }
+            if (activationReused && !warmedTarget && duration - position <= 0.4)
+            {
+                warmedTarget = true;
+                RefreshWindow(0);
+            }
+            // Stop just before MediaEnded blanks the picture. If Codex is already up, Finish switches immediately.
+            if (position >= duration - 0.05) { session.Data["completed"] = true; Finish("completed"); return; }
             if (elapsed - progressAt > 6) Fail("视频播放停止超过 6 秒。");
             else if (elapsed > duration + 20) Fail("视频播放超时。");
         }
@@ -464,12 +493,33 @@ namespace CodexIndustrial
             if (Math.Abs(Height - h) > 0.5) Height = h;
         }
 
+        private bool RecentVisibleTarget()
+        {
+            return lastVisible && appWindow != IntPtr.Zero && windowPoll.IsRunning && windowPoll.ElapsedMilliseconds < 500;
+        }
+
+        private void RememberReusedTarget()
+        {
+            activationStarted = true;
+            activationReused = true;
+            session.Data["activation_attempted"] = true;
+            session.Data["activation_succeeded"] = true;
+            session.Data["activation_reused"] = true;
+            session.Data["app_pid"] = appPid;
+        }
+
         private bool EnsureActivated()
         {
             if (preview) return false;
-            if (activationStarted) return activationError == null;
+            if (activationStarted && !activationReused) return activationError == null;
+            if (RecentVisibleTarget()) { RememberReusedTarget(); return true; }
+            if (RefreshWindow(0)) { RememberReusedTarget(); return true; }
+            activationReused = false;
+            appWindow = IntPtr.Zero;
+            lastVisible = false;
             activationStarted = true;
             session.Data["activation_attempted"] = true;
+            session.Data["activation_reused"] = false;
             try
             {
                 appPid = Activation.Open(settings, root);
@@ -487,10 +537,10 @@ namespace CodexIndustrial
             }
         }
 
-        private bool RefreshWindow()
+        private bool RefreshWindow(int minIntervalMs)
         {
             if (preview) return false;
-            if (windowPoll.IsRunning && windowPoll.ElapsedMilliseconds < 180) return lastVisible;
+            if (minIntervalMs > 0 && windowPoll.IsRunning && windowPoll.ElapsedMilliseconds < minIntervalMs) return lastVisible;
             windowPoll.Restart();
             lastVisible = FindApplicationWindow();
             return lastVisible;
@@ -498,17 +548,19 @@ namespace CodexIndustrial
 
         private bool FindApplicationWindow()
         {
-            bool found = false;
+            IntPtr best = IntPtr.Zero;
+            uint bestPid = 0;
+            int bestArea = 0;
             EnumWindows(delegate(IntPtr window, IntPtr unused)
             {
                 if (!IsWindowVisible(window)) return true;
                 uint pid; GetWindowThreadProcessId(window, out pid);
-                if (pid == (uint)Process.GetCurrentProcess().Id) return true;
+                if (pid == 0 || pid == (uint)Process.GetCurrentProcess().Id) return true;
                 try
                 {
                     using (var process = Process.GetProcessById((int)pid))
                     {
-                        bool match = pid == appPid;
+                        bool match = appPid != 0 && pid == appPid;
                         if (!match && settings.Executable.Length == 0)
                         {
                             uint size = 1024; var id = new StringBuilder((int)size);
@@ -522,12 +574,35 @@ namespace CodexIndustrial
                         }
                         if (!match) return true;
                     }
-                    found = true; appWindow = window; session.Data["visible_app_pid"] = pid;
-                    return false;
+                    RECT rect;
+                    int area = 1;
+                    if (GetWindowRect(window, out rect))
+                    {
+                        int w = rect.Right - rect.Left, h = rect.Bottom - rect.Top;
+                        if (w > 0 && h > 0) area = w * h;
+                    }
+                    // Prefer a real window over a cloaked host of the same app. A cloaked-only match is still reused so we don't launch a second process.
+                    int score = area + (IsCloaked(window) ? 0 : 1000000000);
+                    if (score >= bestArea)
+                    {
+                        bestArea = score; best = window; bestPid = pid;
+                    }
+                    return true;
                 }
                 catch { return true; }
             }, IntPtr.Zero);
-            return found;
+            if (best == IntPtr.Zero) return false;
+            appWindow = best;
+            if (appPid == 0) appPid = bestPid;
+            session.Data["visible_app_pid"] = bestPid;
+            return true;
+        }
+
+        private static bool IsCloaked(IntPtr window)
+        {
+            int cloaked;
+            try { return DwmGetWindowAttribute(window, 14, out cloaked, 4) == 0 && cloaked != 0; }
+            catch { return false; }
         }
 
         private void Fail(string error)
@@ -551,7 +626,14 @@ namespace CodexIndustrial
                 session.Save();
                 return;
             }
-            if (!preview && !EnsureActivated())
+            if (preview)
+            {
+                if (!dismiss.IsRunning) dismiss.Start();
+                if (reason == "reduced_motion") { Dispatcher.BeginInvoke(new Action(Close)); return; }
+                BeginFade();
+                return;
+            }
+            if (!EnsureActivated())
             {
                 session.Save();
                 ShowActivationError();
@@ -559,17 +641,22 @@ namespace CodexIndustrial
                 return;
             }
             if (!dismiss.IsRunning) dismiss.Start();
-            if (reason == "reduced_motion")
+            if (!handoff.IsRunning) handoff.Start();
+            // Already on screen: cut straight across. A black fade or a held frame reads as lag when Codex is waiting.
+            if (RecentVisibleTarget() || RefreshWindow(0))
             {
-                if (preview) { Dispatcher.BeginInvoke(new Action(Close)); return; }
-                holdForWindow = true;
-                if (RefreshWindow()) { fadeDone = true; TryComplete(); }
+                session.Data["app_window_visible"] = true;
+                session.Data["handoff_immediate"] = true;
+                fadeDone = true;
+                TryComplete();
                 return;
             }
-            // Natural end keeps the last frame until Codex is actually up. Skip and failure fade immediately.
-            holdForWindow = reason == "completed" && opened && !preview;
-            if (!holdForWindow) BeginFade();
-            else if (RefreshWindow()) BeginFade();
+            if (reason == "completed" && opened)
+            {
+                holdForWindow = true;
+                return;
+            }
+            BeginFade();
         }
 
         private void ShowActivationError()
@@ -600,7 +687,7 @@ namespace CodexIndustrial
             if (!fadeDone || cleaned || closing) return;
             if (!preview)
             {
-                bool visible = RefreshWindow();
+                bool visible = RecentVisibleTarget() || RefreshWindow(0);
                 session.Data["app_window_visible"] = visible;
                 bool timedOut = !dismiss.IsRunning || dismiss.Elapsed.TotalSeconds >= 8;
                 if (!visible && !timedOut) return;
